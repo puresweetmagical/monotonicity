@@ -1,0 +1,474 @@
+\documentclass[11pt]{article}
+ 
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage[hidelinks]{hyperref}
+ 
+\newtheorem{definition}{Definition}[section]
+\newtheorem{lemma}[definition]{Lemma}
+\newtheorem{proposition}[definition]{Proposition}
+\newtheorem{theorem}[definition]{Theorem}
+\newtheorem{remark}[definition]{Remark}
+\newtheorem{convention}[definition]{Convention}
+ 
+\newcommand{\R}{R}
+\newcommand{\Sfam}{\mathcal S}
+\newcommand{\Lean}[1]{\texttt{\begingroup\def\_{\textunderscore\discretionary{}{}{}}#1\endgroup}}
+\newcommand{\Const}{\operatorname{Const}}
+\newcommand{\Inj}{\operatorname{Inj}}
+\newcommand{\lmin}{\operatorname{lmin}}
+\newcommand{\Int}{\operatorname{Int}}
+ 
+\title{Detailed mathematical write-up of the Lean formalisation\\
+Lemma 1 of the Monotonicity Theorem: a constant or injective subinterval}
+\author{}
+\date{}
+ 
+\begin{document}
+\maketitle
+ 
+\section{Purpose and high-level structure}
+ 
+This document explains, in ordinary mathematical language, a Lean formalisation of \emph{Lemma~1}
+from the proof of the Monotonicity Theorem for definable functions on an o-minimal structure. In
+the source notes (\Lean{monotonicity.tex}), the statement is recorded as a lemma occurring inside
+the proof of the Monotonicity Theorem, and is referred to in the running text simply as Lemma~1.
+ 
+Informally, the argument splits into two cases according to whether some value of $f$ is attained
+infinitely often on the interval $I$. If so, that infinite fibre already contains a subinterval on
+which $f$ is constant. Otherwise every fibre of $f$ on $I$ is finite, which forces the image
+$f(I)$ to be infinite; choosing, for each $y$ in an interval inside $f(I)$, the \emph{least}
+preimage $g(y)\in I$, produces a one-sided inverse of $f$ that is injective by construction. The
+image of $g$ must again contain a subinterval of $I$, and on this last subinterval $f$ is
+necessarily injective.
+ 
+The Lean file discussed here (\Lean{kovacs\_benedek\_noel.lean}) formalises exactly this two-case
+argument. Unlike the companion development described in \emph{Detailed mathematical write-up of
+the Lean formalisation: O-minimal structures, definable maps, images, and local properties}, the
+present file does not build or import a full \Lean{OMinimalStructure} object indexed by all
+arities $n$. Instead, it isolates the two non-trivial mathematical facts that the argument for
+Lemma~1 actually needs and records them as two explicit Lean axioms:
+\begin{itemize}
+  \item \Lean{o\_minimal\_contains\_interval}: every infinite subset of $R$ contains an infinite
+  subinterval of $R$. This is precisely the one-dimensional content of o-minimality --- Definition
+  5.1(xi) in the companion document, together with density of the order --- specialised to the
+  case at hand.
+  \item \Lean{infinite\_image\_of\_injOn}: the image of an infinite set under a function that is
+  injective on that set is again infinite. This is an ordinary fact of cardinal arithmetic; it
+  carries no o-minimality content whatsoever.
+\end{itemize}
+Sections~\ref{sec:order-and-functions}--\ref{sec:choice-function} introduce the order-theoretic
+vocabulary and these two axioms, together with short proofs explaining \emph{why} each axiom is
+true of an actual o-minimal structure. Section~\ref{sec:proof} then gives the proof of Lemma~1
+itself, following the Lean tactic proof step by step.
+ 
+The main result of the file is the following statement.
+ 
+\begin{lemma}[Lemma~1: a constant or injective subinterval]\label{lem:main}
+Let $R$ be a nonempty linearly ordered set, let $I\subseteq R$ be an infinite interval, and let
+$f:R\to R$ be a definable function. Then there is a subinterval $J\subseteq I$ such that $f$ is
+either constant on $J$ or injective on $J$.
+\end{lemma}
+ 
+This is the Lean theorem \Lean{lemma\_0\_5}.
+ 
+\section{The ambient order, intervals, and definable functions}\label{sec:order-and-functions}
+ 
+\subsection{Intervals}
+ 
+Throughout, $R$ is a type equipped with a linear order $<$ (with associated $\le$), and all sets
+are subsets of $R$. The Lean file works with the following order-theoretic notion of an interval.
+ 
+\begin{definition}[Interval]\label{def:interval}
+A subset $S\subseteq R$ is an \emph{interval}, written $\Int(S)$, if it is order-convex: for all
+$x,y\in S$ and all $z\in R$,
+\[
+  x\le z\le y \implies z\in S.
+\]
+\end{definition}
+ 
+In Lean this is the predicate \Lean{is\_interval}.
+ 
+\begin{remark}
+Definition~\ref{def:interval} is the usual order-theoretic notion of a convex subset and is
+slightly more permissive than the inductively generated class \Lean{FiniteUnionOfPointsAndIntervals}
+of the companion document (which singles out points and \emph{open} intervals as generators).
+Every point, every open interval, and every closed or half-open interval satisfies
+Definition~\ref{def:interval}. This extra generality is harmless here: the proof of Lemma~1 never
+inspects the internal structure of an interval, only its convexity, so the weaker and more
+flexible Definition~\ref{def:interval} is the natural notion to use in this file.
+\end{remark}
+ 
+\subsection{Definable functions}
+ 
+\begin{definition}[Definable function, placeholder form]\label{def:definable-fn}
+In this file, a function $f:R\to R$ is \emph{definable} if it satisfies the always-true predicate
+$\Lean{DefinableFunction}(f) :\equiv \top$.
+\end{definition}
+ 
+\begin{remark}
+In the full theory (Definition~6.1 of the companion document), definability of $f:A\to B$ is a
+substantive condition: it requires $A$ and $B$ to be definable sets and the graph of $f$ to be a
+definable subset of $R^{2}$. Because the present file does not instantiate an ambient
+\Lean{OMinimalStructure}, the predicate \Lean{DefinableFunction} is left as the trivial placeholder
+of Definition~\ref{def:definable-fn}. Its purpose is purely structural: it lets the statement of
+Lemma~\ref{lem:main} keep the same shape, $f$ ranging over ``definable'' functions, that it would
+have in the full theory, so that \Lean{DefinableFunction} can later be replaced by the genuine
+notion of Definition~6.1 without changing the statement or proof of Lemma~\ref{lem:main} at all.
+\end{remark}
+ 
+\section{Constancy and injectivity on a subset}
+ 
+\begin{definition}[Constant and injective on a set]
+Let $f:R\to R$ and $J\subseteq R$. We write
+\[
+  \Const(f,J) :\iff \forall x,y\in J,\ f(x)=f(y),
+\]
+\[
+  \Inj(f,J) :\iff \forall x,y\in J,\ \bigl(f(x)=f(y)\implies x=y\bigr).
+\]
+\end{definition}
+ 
+In Lean these are \Lean{ConstantOn} and \Lean{InjectiveOn}. With this vocabulary,
+Lemma~\ref{lem:main} asserts exactly that some subinterval $J\subseteq I$ satisfies
+$\Const(f,J)\vee\Inj(f,J)$.
+ 
+\section{The o-minimal input: infinite sets contain an interval}
+ 
+\begin{definition}[Infinite-set axiom]\label{def:omin-axiom}
+The file postulates, as a Lean \Lean{axiom}, that for every infinite $S\subseteq R$ there is a
+subinterval $J\subseteq S$ that is itself infinite:
+\[
+  S\subseteq R,\ S\text{ infinite}\ \Longrightarrow\ \exists J\subseteq S,\ \Int(J)\wedge J\text{
+  infinite}.
+\]
+\end{definition}
+ 
+This is \Lean{o\_minimal\_contains\_interval}. Although it is introduced as an axiom in this
+self-contained file, it is not an independent assumption about $R$: it is a theorem of any actual
+o-minimal structure, and the next lemma records its proof.
+ 
+\begin{lemma}\label{lem:omin-derivation}
+Let $M=(R,<,(\Sfam_n)_{n})$ be an o-minimal structure on a dense linear order without endpoints
+$R$ (Definitions~3.1 and~5.1 of the companion document). If $S\in\Sfam_1$ is infinite, then $S$
+contains an infinite open interval.
+\end{lemma}
+ 
+\begin{proof}
+By the one-dimensional o-minimality axiom (Definition~5.1(xi)), $S$ is a finite union of points
+and open intervals,
+\[
+  S = \{a_1,\dots,a_k\}\ \cup\ (b_1,c_1)\ \cup\ \cdots\ \cup\ (b_m,c_m).
+\]
+The set of points $\{a_1,\dots,a_k\}$ is finite. If there were no interval pieces ($m=0$), $S$
+itself would be finite, contradicting the hypothesis. Hence $m\ge1$, and $S$ contains some open
+interval $(b_j,c_j)$ with $b_j<c_j$. By density of the order (Definition~3.1(iv)), between any two
+elements of $(b_j,c_j)$ there is a further element of $(b_j,c_j)$; iterating this produces
+infinitely many distinct elements, so $(b_j,c_j)$ is infinite. Since an open interval is convex,
+$J:=(b_j,c_j)$ satisfies $\Int(J)$, $J\subseteq S$, and $J$ is infinite, as required.
+\end{proof}
+ 
+\begin{remark}
+Lemma~\ref{lem:omin-derivation} is exactly Definition~\ref{def:omin-axiom}, i.e.\
+\Lean{o\_minimal\_contains\_interval}, specialised at $n=1$ and restated without reference to the
+family $(\Sfam_n)_n$. Recording it as an axiom in the present file is a deliberate simplification:
+it avoids re-deriving, inside this file, the inductive structure of points and open intervals
+underlying \Lean{Finite\discretionary{}{}{}Union\discretionary{}{}{}Of\discretionary{}{}{}Points\discretionary{}{}{}AndIntervals},
+together with the density argument, while
+remaining faithful to the underlying mathematics, since the displayed implication is a genuine
+theorem of every o-minimal structure.
+\end{remark}
+ 
+\section{A cardinality fact: injective images of infinite sets}
+ 
+\begin{definition}[Injective-image axiom]
+The file also postulates, as a Lean \Lean{axiom}, that for $s\subseteq R$ and $f:R\to R$,
+\[
+  s\text{ infinite},\ f\text{ injective on } s\ \Longrightarrow\ f(s)\text{ infinite}.
+\]
+\end{definition}
+ 
+This is \Lean{infinite\_image\_of\_injOn}. In contrast with
+Definition~\ref{def:omin-axiom}, this fact carries no o-minimality content: it is a statement of
+ordinary cardinal arithmetic, true for an arbitrary function between arbitrary sets.
+ 
+\begin{lemma}\label{lem:inj-image}
+Let $s$ be an infinite set and let $f$ be injective on $s$. Then $f(s)$ is infinite.
+\end{lemma}
+ 
+\begin{proof}
+We argue by contraposition. Suppose $f(s)$ is finite. The restriction of $f$ to $s$, viewed as a
+map $s\to f(s)$, is injective by hypothesis and surjective onto $f(s)$ by definition of the image,
+hence a bijection of $s$ onto $f(s)$. An infinite set cannot be put in bijection with a finite one,
+so $s$ would have to be finite as well. This contradicts the hypothesis that $s$ is infinite.
+Hence $f(s)$ is infinite.
+\end{proof}
+ 
+\begin{remark}
+Because Lemma~\ref{lem:inj-image} does not depend on o-minimality, it could equally well be proved
+inside the Lean file itself rather than postulated as an axiom (for instance by formalising the
+contrapositive argument above). It is recorded here as an axiom purely for economy of
+presentation; doing so does not weaken the formalisation of Lemma~\ref{lem:main}, since
+Lemma~\ref{lem:inj-image} is unconditionally true.
+\end{remark}
+ 
+\section{A choice function for least elements}\label{sec:choice-function}
+ 
+The informal proof of Lemma~1 defines an ``inverse'' $g$ by $g(y):=\min\{x\in I: f(x)=y\}$. To
+formalise this without first proving that the relevant set always has a minimum, the Lean file
+uses Hilbert's choice operator.
+ 
+\begin{definition}[Least element, by choice]
+For $S\subseteq R$, define
+\[
+  \lmin(S) := \varepsilon x.\ \bigl(x\in S \wedge \forall y\in S,\ x\le y\bigr),
+\]
+where $\varepsilon$ is Hilbert's choice operator: $\varepsilon x.\,P(x)$ denotes an arbitrarily
+chosen element satisfying $P$ if one exists, and an arbitrary element of $R$ otherwise.
+\end{definition}
+ 
+This is the noncomputable Lean definition \Lean{myInf}, built from \Lean{Classical.epsilon}.
+Nothing is asserted yet about $\lmin(S)$ in general; the next lemma isolates exactly the
+circumstances under which $\lmin(S)$ behaves as a genuine minimum.
+ 
+\begin{lemma}[Specification of $\lmin$]\label{lem:myinf-spec}
+If $S$ is finite and nonempty, then $\lmin(S)\in S$ and $\lmin(S)\le z$ for every $z\in S$; that
+is, $\lmin(S)$ is the minimum element of $S$.
+\end{lemma}
+ 
+\begin{proof}
+Since $R$ is linearly ordered and $S$ is finite and nonempty, $S$ has a minimum element $x_0$: view
+$S$ as a finite set (a \Lean{Finset}) and let $x_0$ be its minimum, which exists by finiteness and
+is characterised by $x_0\in S$ and $x_0\le z$ for all $z\in S$. Thus the predicate
+$P(x):\equiv x\in S\wedge\forall y\in S,\ x\le y$ is satisfied by $x_0$, so $\exists x,\ P(x)$ holds.
+By the defining specification of Hilbert's choice operator, whenever $\exists x,\ P(x)$ holds, the
+chosen element $\varepsilon x.\,P(x)$ itself satisfies $P$. Hence $P(\lmin(S))$ holds, which is the
+statement of the lemma.
+\end{proof}
+ 
+\begin{raggedright}
+This is the Lean lemma \Lean{myInf\_spec}. In Lean the minimum $x_0$ is produced by
+\Lean{Set.Finite.toFinset} together with \Lean{Finset.min\textquotesingle}. The final step,
+\Lean{Classical.epsilon\_spec}, then transfers this minimality to $\lmin$.
+\end{raggedright}
+ 
+\section{Proof of Lemma~1}\label{sec:proof}
+ 
+We now prove Lemma~\ref{lem:main}, following the case split used in the Lean proof of
+\Lean{lemma\_0\_5}. Fix $R$, $I$, $f$ as in the statement, with $I$ an infinite interval.
+ 
+\subsection{Splitting on the fibres of $f$ over $I$}
+ 
+The proof distinguishes two cases, according to whether
+\[
+  \exists y\in R,\ f^{-1}(y)\cap I \text{ is infinite}
+\]
+holds or fails. In Lean this is the case split \Lean{by\_cases h\_inf\_preimage}.
+ 
+\subsection{Case 1: some fibre is infinite}
+ 
+Suppose $f^{-1}(y)\cap I$ is infinite for some $y\in R$. By
+Definition~\ref{def:omin-axiom}/\Lean{o\_minimal\_contains\_interval} applied to the infinite set
+$f^{-1}(y)\cap I$, there is a subinterval
+\[
+  J\subseteq f^{-1}(y)\cap I
+\]
+with $\Int(J)$ (the auxiliary infiniteness of $J$ furnished by the axiom is not needed here and is
+discarded; in Lean this is \Lean{h\_contains\_interval}). Since $J\subseteq I$, $J$ is a candidate
+subinterval of $I$. We show $\Const(f,J)$. For $x,z\in J$ we have $x,z\in f^{-1}(y)$, i.e.
+$f(x)=y=f(z)$; hence $f(x)=f(z)$. As $x,z\in J$ were arbitrary, $\Const(f,J)$ holds, and the
+disjunction $\Const(f,J)\vee\Inj(f,J)$ in Lemma~\ref{lem:main} is witnessed by its left disjunct.
+ 
+\subsection{Case 2: every fibre is finite}
+ 
+Now suppose every fibre of $f$ on $I$ is finite:
+\[
+  \forall y\in R,\ f^{-1}(y)\cap I \text{ is finite}.
+\]
+(In Lean, this is obtained from the negation of the Case~1 hypothesis by the tactic \Lean{push
+Not}, using the fact that, by definition, a set is infinite exactly when it is not finite, so the
+negated hypothesis simplifies directly to finiteness of every fibre; this hypothesis is recorded
+as \Lean{h\_inf\_preimage} for the remainder of the proof.)
+ 
+\subsubsection{The image $f(I)$ is infinite}
+ 
+\begin{lemma}\label{lem:fI-infinite}
+Under the standing hypotheses of Case~2, $f(I)$ is infinite.
+\end{lemma}
+ 
+\begin{proof}
+Suppose, for contradiction, that $f(I)$ is finite. Every $x\in I$ lies in the fibre
+$f^{-1}(f(x))\cap I$, so
+\[
+  I \ \subseteq\ \bigcup_{y\in f(I)} \bigl(f^{-1}(y)\cap I\bigr).
+\]
+The index set $f(I)$ is finite by assumption, and each set $f^{-1}(y)\cap I$ in the union is
+finite by the standing hypothesis of Case~2. A finite union of finite sets is finite, so the
+right-hand side is finite, and hence $I$, being a subset of a finite set, is finite. This
+contradicts the hypothesis that $I$ is infinite.
+\end{proof}
+ 
+This is \Lean{h\_fI\_inf}; in Lean the contradiction is reached directly, by assuming a proof
+\Lean{h\_fin\_img} of finiteness of $f(I)$, exhibiting $I$ as a subset of the finite union
+\Lean{Set.Finite.biUnion h\_fin\_img (fun y \_ => h\_inf\_preimage y)} via
+\Lean{Set.mem\_biUnion}, and finally applying the hypothesis \Lean{hI\_inf} (that $I$ is infinite,
+i.e.\ that $I$ is \emph{not} finite) to the resulting proof that $I$ is finite.
+ 
+By Definition~\ref{def:omin-axiom}/\Lean{o\_minimal\_contains\_interval} applied to the infinite
+set $f(I)$, we obtain a subinterval
+\[
+  J_{\mathrm{img}}\subseteq f(I), \qquad \Int(J_{\mathrm{img}}), \qquad J_{\mathrm{img}}\text{
+  infinite}.
+\]
+This is \Lean{h\_fI\_contains\_interval}; unlike in Case~1, the infiniteness of $J_{\mathrm{img}}$
+furnished by the axiom is retained here, since it will be needed below.
+ 
+\subsubsection{A one-sided inverse $g$ on $J_{\mathrm{img}}$}
+ 
+Define
+\[
+  g:R\to R,\qquad g(y) := \lmin\bigl(\{x\in I : f(x)=y\}\bigr).
+\]
+This is the Lean local definition \Lean{let g := fun y => myInf \{x \(\in\) I | f x = y\}}.
+ 
+\begin{lemma}\label{lem:g-properties}
+For every $y\in J_{\mathrm{img}}$,
+\[
+  g(y)\in I \qquad\text{and}\qquad f(g(y)) = y.
+\]
+\end{lemma}
+ 
+\begin{proof}
+Fix $y\in J_{\mathrm{img}}\subseteq f(I)$, so there is $x\in I$ with $f(x)=y$; thus the set
+$S_y:=\{x\in I: f(x)=y\}$ is nonempty. By the standing hypothesis of Case~2, $S_y$ is a subset of
+the finite fibre $f^{-1}(y)\cap I$ (indeed $S_y = f^{-1}(y)\cap I$), so $S_y$ is finite. By
+Lemma~\ref{lem:myinf-spec}, $\lmin(S_y) = g(y)$ satisfies $g(y)\in S_y$, i.e. $g(y)\in I$ and
+$f(g(y))=y$.
+\end{proof}
+ 
+This is \Lean{h\_g\_in\_I} and \Lean{h\_fg\_eq}; the finiteness of each $S_y$ is recorded once, for
+all $y$ simultaneously, as \Lean{h\_finite\_preimage}.
+ 
+\subsubsection{$g$ is injective, and its image contains an interval}
+ 
+\begin{lemma}\label{lem:g-injective}
+$g$ is injective on $J_{\mathrm{img}}$.
+\end{lemma}
+ 
+\begin{proof}
+Let $y_1,y_2\in J_{\mathrm{img}}$ with $g(y_1)=g(y_2)$. By Lemma~\ref{lem:g-properties},
+\[
+  y_1 = f(g(y_1)) = f(g(y_2)) = y_2.
+\]
+\end{proof}
+ 
+This is \Lean{h\_g\_inj}. Combining Lemma~\ref{lem:g-injective} with the infiniteness of
+$J_{\mathrm{img}}$ established above and Lemma~\ref{lem:inj-image}, i.e.\
+\Lean{infinite\_image\_of\_injOn}, the image $g(J_{\mathrm{img}})$ is infinite; this is
+\Lean{h\_gJ\_inf}. Applying
+Definition~\ref{def:omin-axiom}/\Lean{o\_minimal\_contains\_interval} once more, this time to the
+infinite set $g(J_{\mathrm{img}})$, yields a subinterval
+\[
+  J \subseteq g(J_{\mathrm{img}}), \qquad \Int(J)
+\]
+(again discarding the auxiliary infiniteness of $J$, which is not needed further). This is
+\Lean{h\_gJ\_contains\_interval}.
+ 
+By Lemma~\ref{lem:g-properties}, every element of $g(J_{\mathrm{img}})$ lies in $I$, so
+$J\subseteq g(J_{\mathrm{img}})\subseteq I$. This inclusion is \Lean{hJ\_sub\_I}, and it makes $J$
+a legitimate candidate subinterval of $I$ for Lemma~\ref{lem:main}.
+ 
+\subsubsection{Conclusion: $f$ is injective on $J$}
+ 
+It remains to show $\Inj(f,J)$. Let $x_1,x_2\in J$ with $f(x_1)=f(x_2)$. Since
+$J\subseteq g(J_{\mathrm{img}})$, there are $y_1,y_2\in J_{\mathrm{img}}$ with
+\[
+  g(y_1)=x_1, \qquad g(y_2)=x_2.
+\]
+Substituting, the hypothesis $f(x_1)=f(x_2)$ becomes
+\[
+  f(g(y_1)) = f(g(y_2)),
+\]
+and the desired conclusion $x_1=x_2$ becomes, after the same substitution, the equivalent goal
+\[
+  g(y_1) = g(y_2).
+\]
+By Lemma~\ref{lem:g-properties}, $f(g(y_1))=y_1$ and $f(g(y_2))=y_2$; combined with
+$f(g(y_1))=f(g(y_2))$ from above, this gives $y_1=y_2$. Substituting back, $g(y_1)=g(y_2)$, which
+is exactly the goal. Hence $\Inj(f,J)$ holds, and the disjunction $\Const(f,J)\vee\Inj(f,J)$ is
+witnessed by its right disjunct. This completes Case~2, and with it the proof of Lemma~\ref{lem:main}.
+ 
+In Lean, the two substitutions described above are performed by rewriting along
+\Lean{hy1\_eq : g y1 = x1} and \Lean{hy2\_eq : g y2 = x2} (in the hypothesis \Lean{h\_eq} and in
+the goal), the equality $y_1=y_2$ is recorded as \Lean{h\_y\_eq}, obtained by rewriting along
+\Lean{h\_fg\_eq y1 hy1\_in} and \Lean{h\_fg\_eq y2 hy2\_in}, and the proof finishes with
+\Lean{rw [h\_y\_eq]}.
+ 
+\subsection{A remark on the hypotheses \texorpdfstring{$\Int(I)$}{Int(I)} and definability of $f$}
+ 
+\begin{remark}
+The Lean signature of \Lean{lemma\_0\_5} records two hypotheses, named \Lean{\_hI : is\_interval I}
+and \Lean{\_hf\_def : DefinableFunction f}, whose leading underscore is the Lean convention for
+``present for the shape of the statement, not used by name in the proof.'' Indeed, neither the
+convexity of $I$ nor the (placeholder) definability of $f$ is used anywhere in the argument above:
+only the infiniteness of $I$, recorded as \Lean{hI\_inf}, is needed. This is not an oversight; it
+mirrors the informal proof, which likewise never uses convexity of $I$ beyond the fact that a
+subset of an interval that is itself convex is again an interval --- a fact that is used only to
+justify calling the sets $J$ produced along the way ``subintervals,'' not to derive any further
+property of $f$. The hypotheses are kept in the statement of Lemma~\ref{lem:main} so that its
+signature matches the way $I$ and $f$ are introduced in the surrounding proof of the Monotonicity
+Theorem, where $I$ is always an interval and $f$ is always definable.
+\end{remark}
+ 
+\section{Dictionary between the Lean file and this document}
+ 
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.46\textwidth}>{\raggedright\arraybackslash}p{0.44\textwidth}}
+\toprule
+Lean name & Mathematical meaning \\
+\midrule
+\endhead
+\Lean{is\_interval} & The convexity predicate $\Int(S)$ of Definition~\ref{def:interval}. \\
+\Lean{DefinableFunction} & Placeholder predicate, identically true (Definition~\ref{def:definable-fn}). \\
+\Lean{ConstantOn} & The predicate $\Const(f,J)$. \\
+\Lean{InjectiveOn} & The predicate $\Inj(f,J)$. \\
+\Lean{o\_minimal\_contains\_interval} & Axiom: every infinite subset of $R$ contains an infinite subinterval (Definition~\ref{def:omin-axiom}; proved from o-minimality in Lemma~\ref{lem:omin-derivation}). \\
+\Lean{infinite\_image\_of\_injOn} & Axiom: the injective image of an infinite set is infinite (Lemma~\ref{lem:inj-image}). \\
+\Lean{myInf} & The choice function $\lmin(S)=\varepsilon x.\,(x\in S\wedge\forall y\in S, x\le y)$. \\
+\Lean{myInf\_spec} & Specification of $\lmin$ on finite nonempty sets (Lemma~\ref{lem:myinf-spec}). \\
+\Lean{lemma\_0\_5} & Lemma~1 itself (Lemma~\ref{lem:main}). \\
+\Lean{h\_inf\_preimage} & The case-split hypothesis on fibres of $f$ over $I$ (Section~\ref{sec:proof}.1). \\
+\Lean{h\_contains\_interval} & The subinterval of an infinite fibre, in Case~1. \\
+\Lean{h\_fI\_inf} & Infiniteness of $f(I)$ in Case~2 (Lemma~\ref{lem:fI-infinite}). \\
+\Lean{h\_fI\_contains\_interval} & The subinterval $J_{\mathrm{img}}\subseteq f(I)$, with its infiniteness. \\
+\Lean{g} & The one-sided inverse $g(y)=\lmin\{x\in I: f(x)=y\}$. \\
+\Lean{h\_finite\_preimage} & Finiteness of $\{x\in I: f(x)=y\}$ for every $y$, from the Case~2 hypothesis. \\
+\Lean{h\_g\_in\_I}, \Lean{h\_fg\_eq} & The two parts of Lemma~\ref{lem:g-properties}: $g(y)\in I$ and $f(g(y))=y$. \\
+\Lean{h\_g\_inj} & Injectivity of $g$ on $J_{\mathrm{img}}$ (Lemma~\ref{lem:g-injective}). \\
+\Lean{h\_gJ\_inf} & Infiniteness of $g(J_{\mathrm{img}})$. \\
+\Lean{h\_gJ\_contains\_interval} & The final subinterval $J\subseteq g(J_{\mathrm{img}})$. \\
+\Lean{hJ\_sub\_I} & The inclusion $J\subseteq I$. \\
+\Lean{h\_y\_eq} & The equality $y_1=y_2$ used to conclude $g(y_1)=g(y_2)$ at the end of Case~2. \\
+\bottomrule
+\end{longtable}
+ 
+\section{Summary in one line}
+ 
+The mathematical content of the Lean file is exactly the case split
+\[
+  \bigl(\exists y,\ f^{-1}(y)\cap I \text{ infinite}\bigr)
+  \ \vee\
+  \bigl(\forall y,\ f^{-1}(y)\cap I \text{ finite}\bigr),
+\]
+together with the one-dimensional o-minimality fact that every infinite subset of $R$ contains an
+infinite subinterval, applied first to a single infinite fibre, and, in the remaining case, to the
+infinite image $f(I)$ and again to the infinite image of the resulting least-preimage function
+$g$; this assembles, in either branch, a subinterval $J\subseteq I$ on which $f$ is constant or
+injective.
+ 
+\end{document}
